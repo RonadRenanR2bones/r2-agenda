@@ -28,22 +28,29 @@ async function enterApp(){
  show('auth',false);show('setup',false);show('app',true);
  await loadEvents();if(poller)clearInterval(poller);poller=setInterval(()=>{if(!document.hidden)loadEvents()},20000);
 }
-async function loadEvents(){if(!session)return;try{const d=await call('list');events=d.events||[];holidays=d.holidays||[];$('syncStatus').textContent='Dados sincronizados · atualização a cada 20 segundos';render()}catch(e){$('syncStatus').textContent='Falha ao sincronizar: '+e.message;if(/Sessão|Conta desativada/.test(e.message))logout()}}
+async function loadEvents(){if(!session)return;try{const d=await call('list');events=d.events||[];$('syncStatus').textContent='Dados sincronizados · atualização a cada 20 segundos';render()}catch(e){$('syncStatus').textContent='Falha ao sincronizar: '+e.message;if(/Sessão|Conta desativada/.test(e.message))logout()}}
 async function logout(){try{if(session)await call('logout')}catch{}session=null;membership=null;sessionStorage.removeItem('r2_token');if(poller)clearInterval(poller);poller=null;show('app',false);show('auth',true)}
 
-let activeFilter='all',editMode='commercial',holidays=[],trashOpen=false;
+let activeFilter='all',editMode='commercial',trashOpen=false;
 const liveEvents=()=>events.filter(e=>!e.archived_at);
 const archivedEvents=()=>events.filter(e=>!!e.archived_at);
 const activeArt=e=>['confirmada','realizada'].includes(e.commercial_status)&&!['pronta','publicada'].includes(e.marketing_status);
 function matchesStat(e){return activeFilter==='all'||(activeFilter==='art'?activeArt(e):e.commercial_status===activeFilter)}
 function render(){const active=liveEvents().filter(e=>e.commercial_status!=='cancelada');$('statAll').textContent=liveEvents().length;$('statConfirmed').textContent=liveEvents().filter(e=>e.commercial_status==='confirmada').length;$('statArt').textContent=active.filter(activeArt).length;$('statNegotiation').textContent=liveEvents().filter(e=>e.commercial_status==='negociacao').length;document.querySelectorAll('[data-stat]').forEach(b=>b.classList.toggle('active',activeFilter!=='all'&&b.dataset.stat===activeFilter));const cities=[...new Set(liveEvents().map(e=>e.city).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));const old=$('cityFilter').value;$('cityFilter').innerHTML='<option value="">Todas as cidades</option>'+cities.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');$('cityFilter').value=cities.includes(old)?old:'';renderCalendar();renderList();renderMarketing();renderTrash()}
-const dateAt=s=>new Date(s+'T12:00:00');
-function easter(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k+7)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31),day=(h+l-7*m+114)%31+1;return new Date(y,month-1,day,12)}
-function shift(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return isoLocal(x)}
-function nationalHoliday(day){const y=Number(day.slice(0,4));const fixed={'01-01':'Confraternização Universal','04-21':'Tiradentes','05-01':'Dia do Trabalho','09-07':'Independência do Brasil','10-12':'Nossa Senhora Aparecida','11-02':'Finados','11-15':'Proclamação da República','11-20':'Consciência Negra','12-25':'Natal'};return fixed[day.slice(5)]||''}
-const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
-function holidayFor(day,ev){const national=nationalHoliday(day);const local=holidays.filter(h=>h.date===day&&(!h.state||h.state===(ev?.state||'RJ'))&&(!h.city||normalize(h.city)===normalize(ev?.city)));return [...new Set([national,...local.map(h=>h.name)].filter(Boolean))].join(' · ')}
-function renderCalendar(){const y=currentMonth.getFullYear(),m=currentMonth.getMonth();$('monthTitle').textContent=currentMonth.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});let html='';for(let n=1;n<=new Date(y,m+1,0).getDate();n++){const d=new Date(y,m,n,12),day=isoLocal(d),items=liveEvents().filter(e=>e.start_date<=day&&e.end_date>=day&&matchesStat(e));const localH=holidays.filter(h=>h.date===day&&liveEvents().some(e=>e.start_date<=day&&e.end_date>=day&&(!h.state||h.state===(e.state||'RJ'))&&(!h.city||normalize(h.city)===normalize(e.city))));const holiday=nationalHoliday(day)||localH.length>0;if(d.getDay()!==0&&d.getDay()!==6&&!holiday)continue;const names=[...new Set([nationalHoliday(day),...localH.map(h=>h.name)].filter(Boolean))];html+=`<div class="day ${day===isoLocal(new Date())?'today':''}"><div class="day-heading">${n} · ${d.toLocaleDateString('pt-BR',{weekday:'long'})}</div>${names.length?`<div class="holiday-label">${escapeHtml(names.join(' · '))}</div>`:''}${items.map(e=>`<button class="eventchip ${escapeHtml(e.commercial_status)}" data-open="${escapeHtml(e.id)}" title="${escapeHtml(e.name+' — '+(e.city||'')+' — '+labels[e.commercial_status])}">${escapeHtml(e.name)}</button>`).join('')}</div>`} $('calendarGrid').innerHTML=html||'<div class="empty">Nenhuma data disponível.</div>'}
+function renderCalendar(){
+ const y=currentMonth.getFullYear(),m=currentMonth.getMonth();
+ $('monthTitle').textContent=currentMonth.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+ const first=new Date(y,m,1,12).getDay(),total=new Date(y,m+1,0).getDate();
+ let html=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((name,i)=>`<div class="weekday ${i===0?'sunday':i===6?'saturday':''}">${name}</div>`).join('');
+ for(let i=0;i<first;i++)html+='<div class="day outside" aria-hidden="true"></div>';
+ for(let n=1;n<=total;n++){
+  const d=new Date(y,m,n,12),day=isoLocal(d),weekday=d.getDay();
+  const items=liveEvents().filter(e=>e.start_date<=day&&e.end_date>=day&&matchesStat(e));
+  const cls=weekday===0?'sunday':weekday===6?'saturday':'weekday-day';
+  html+=`<div class="day ${cls} ${day===isoLocal(new Date())?'today':''}"><div class="day-heading">${n}</div>${items.map(e=>`<button class="eventchip ${escapeHtml(e.commercial_status)}" data-open="${escapeHtml(e.id)}" title="${escapeHtml(e.name+' — '+(e.city||'')+' — '+(labels[e.commercial_status]||''))}">${escapeHtml(e.name)}</button>`).join('')}</div>`;
+ }
+ $('calendarGrid').innerHTML=html;
+}
 function pill(text,cls=''){return `<span class="pill ${cls}">${escapeHtml(text)}</span>`}
 function itemHtml(e,marketingMode=false){const late=e.art_deadline&&e.art_deadline<isoLocal(new Date())&&activeArt(e);return `<article class="item"><div><h3>${escapeHtml(e.name)}</h3><p>${formatDate(e.start_date)}${e.end_date!==e.start_date?' a '+formatDate(e.end_date):''} · ${escapeHtml([e.venue,e.city,e.state].filter(Boolean).join(' — ')||'Local a definir')}</p><div class="badges">${pill(labels[e.commercial_status],e.commercial_status==='confirmada'?'good':e.commercial_status==='cancelada'?'bad':'')}${pill('Arte: '+labels[e.marketing_status],['pronta','publicada'].includes(e.marketing_status)?'good':'warn')}${e.art_deadline?pill('Prazo: '+formatDate(e.art_deadline),late?'bad':''):''}</div></div><button class="btn" data-open="${escapeHtml(e.id)}" data-mode="${marketingMode?'marketing':'commercial'}">${marketingMode?'Atualizar marketing':'Abrir feira'}</button></article>`}
 function renderList(){const term=normalize($('search').value),status=$('statusFilter').value,city=$('cityFilter').value,month=$('monthFilter').value;const found=liveEvents().filter(e=>matchesStat(e)&&(!status||e.commercial_status===status)&&(!city||e.city===city)&&(!month||e.start_date<=month+'-31'&&e.end_date>=month+'-01')&&(!term||normalize([e.name,e.city,e.venue,e.producer].join(' ')).includes(term)));$('eventsList').innerHTML=found.map(e=>itemHtml(e)).join('')||'<div class="empty">Nenhuma feira encontrada.</div>'}
